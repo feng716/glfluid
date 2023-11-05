@@ -1,8 +1,0 @@
-#version 450 core
-layout (local_size_x=100) in;
-layout (rgba32f) uniform imageBuffer particlePosition;
-void main(void){
-    vec4 pos=imageLoad(particlePosition,int(gl_GlobalInvocationID.x));
-    imageStore(particlePosition,int(gl_GlobalInvocationID.x),vec4(0,0,0,0));
-    
-}
