@@ -1,7 +1,8 @@
 #version 450
 layout (location = 0) in vec4 vPos;
-out vec2 coord;
+layout (location = 1) in vec2 coord;
+out vec2 outCoord;
 void main(){
     gl_Position=vPos;
-    coord=vPos.xy;
+    outCoord=coord;
 }

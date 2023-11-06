@@ -3,3 +3,4 @@ imgui
 .xmake
 build
 .cache
+.vscode

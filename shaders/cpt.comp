@@ -1,7 +1,16 @@
 #version 450 core
 layout (local_size_x=16) in;
 layout (binding=0,rgba32f) uniform imageBuffer particlePosition;
+layout (binding=1,rgba32f) uniform image2D renderTarget;
+uniform float particleSize;
 void main(void){
     vec4 pos=imageLoad(particlePosition,int(gl_GlobalInvocationID.x));
-    
+    pos.x-=particleSize;
+    pos.y+=particleSize;
+    for(int enm_x=int(pos.x);enm_x<int(pos.x+2*particleSize);enm_x++){
+        for(int enm_y=int(pos.y);enm_y>int(pos.y-2*particleSize);enm_y--){
+            imageStore(renderTarget,ivec2(enm_x,enm_y),vec4(1,0,0,0));
+        }
+    }
+    imageStore(renderTarget,ivec2(256,256),vec4(1,0,0,0));
 }
