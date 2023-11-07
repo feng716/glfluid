@@ -79,7 +79,9 @@ struct{
     int length=32;
     int interval=20;
     float gravity=-9.8;
+    float mass=1;
     float size=5;
+    float accler_scale=15;// multiply a scale constant with the accler 
 } particle_system_properties;
 int main(){
     glfwInit();
@@ -140,9 +142,11 @@ void render_imgui(){
     ImGui::Begin("GLFluid");
     ImGui::SliderInt("width", &particle_system_properties.width, 0, 32);
     ImGui::SliderInt("length", &particle_system_properties.length, 0, 32);
-    //set the particle size
     ImGui::SliderFloat("particle size", &particle_system_properties.size, 0, 10);
     ImGui::Text("Render Target: %u",textures.renderTarget);
+    ImGui::SliderFloat("Gravity", &particle_system_properties.gravity, -10, 10);
+    ImGui::SliderFloat("Mass", &particle_system_properties.mass, .01, 10);
+    ImGui::SliderFloat("Acceleration Scale", &particle_system_properties.accler_scale, 3, 10);
     ImGui::End();
 }
 void init(){
@@ -275,7 +279,9 @@ void update_particles(float deltaTime){
     glClearTexImage(textures.renderTarget,0,GL_RGB,GL_FLOAT,black);
     glUniform1f(glGetUniformLocation(ComputeProgram,"particleSize"),particle_system_properties.size);
     glUniform1f(glGetUniformLocation(ComputeProgram,"gravity"),particle_system_properties.gravity);
+    glUniform1f(glGetUniformLocation(ComputeProgram,"mass"),particle_system_properties.mass);
     glUniform1f(glGetUniformLocation(ComputeProgram,"deltaTime"),deltaTime);
+    glUniform1f(glGetUniformLocation(ComputeProgram,"acclerScale"),particle_system_properties.accler_scale);
     glDispatchCompute(64,1,1);//64 * 16 = 1024. 64 = work group 16 = local work grou size
 }
 void bind_uniformi(const char * uniformName,float val,unsigned int program){
