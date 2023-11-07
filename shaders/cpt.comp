@@ -2,15 +2,29 @@
 layout (local_size_x=16) in;
 layout (binding=0,rgba32f) uniform imageBuffer particlePosition;
 layout (binding=1,rgba32f) uniform image2D renderTarget;
+layout (binding=2,rgba32f) uniform imageBuffer particleVelocity;
 uniform float particleSize;
+uniform float deltaTime;
+uniform float gravity;
+
 void main(void){
     vec4 pos=imageLoad(particlePosition,int(gl_GlobalInvocationID.x));
+    //draw the particles
+    imageStore(renderTarget,ivec2(pos.x,pos.y),vec4(1, 1, 0, 0));
+    vec4 origin=pos;
     pos.x-=particleSize;
     pos.y+=particleSize;
-    for(int enm_x=int(pos.x);enm_x<int(pos.x+2*particleSize);enm_x++){
-        for(int enm_y=int(pos.y);enm_y>int(pos.y-2*particleSize);enm_y--){
-            imageStore(renderTarget,ivec2(enm_x,enm_y),vec4(1,0,0,0));
+    for(float enm_x=floor(pos.x);enm_x<floor(pos.x+2*particleSize);enm_x++){
+        for(float enm_y=floor(pos.y);enm_y>floor(pos.y-2*particleSize);enm_y--){
+            float x_delta=enm_x-origin.x;
+            float y_delta=enm_y-origin.y;
+            if(pow(x_delta, 2)+pow(y_delta,2)<=pow(particleSize,2))
+                imageStore(renderTarget,ivec2(enm_x,enm_y),vec4(1,0,0,0));
         }
     }
-    imageStore(renderTarget,ivec2(256,256),vec4(1,0,0,0));
+    
+    //calculate particle properties for next frame
+    vec4 gravity_vec=vec4(0,-gravity,0,0);
+    
+    
 }

@@ -22,7 +22,7 @@ void link_program(unsigned int program);
 void bind_uniformi(const char * uniformName,float val,unsigned int program);
 void render();
 void render_imgui();
-void update_particles();
+void update_particles(float deltaTime);
 void init();
 unsigned int SquareVBO,SquareVAO,ComputeProgram,RenderTargetProgram;
 struct vec4{
@@ -71,12 +71,14 @@ struct {
 } samplers;
 struct {
     vec4* position;
+    vec4* velocity;
 } particle_properties;
 struct{
     //32 * 32 = 1024
     int width=32;
     int length=32;
-    int interval=10;
+    int interval=20;
+    float gravity=-9.8;
     float size=5;
 } particle_system_properties;
 int main(){
@@ -99,8 +101,12 @@ int main(){
     ImGui_ImplOpenGL3_Init();
     
     init();
+    float currentTime=glfwGetTime();
+    float lastTime=0;
     while(!glfwWindowShouldClose(window)){
-        update_particles();
+        float deltaTime=currentTime-lastTime;
+        lastTime=currentTime;
+        update_particles(deltaTime);
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
@@ -110,7 +116,7 @@ int main(){
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
         glfwPollEvents();
-        
+        currentTime=glfwGetTime();
     }
     
     glfwTerminate();
@@ -137,7 +143,6 @@ void render_imgui(){
     //set the particle size
     ImGui::SliderFloat("particle size", &particle_system_properties.size, 0, 10);
     ImGui::Text("Render Target: %u",textures.renderTarget);
-    glUniform1f(glGetUniformLocation(ComputeProgram,"particleSize"),particle_system_properties.size);
     ImGui::End();
 }
 void init(){
@@ -179,36 +184,66 @@ void init(){
     glCreateVertexArrays(1,&VAOs.computeVAO);
     glBindVertexArray(VAOs.computeVAO);//bind VAOs for the compute shader
 
-    glBindImageTexture(1,textures.renderTarget,0,GL_FALSE,0,GL_READ_WRITE,GL_RGBA32F);
+    glBindImageTexture(1,textures.renderTarget,0,GL_FALSE,0,GL_READ_WRITE,GL_RGBA32F);//bind the image unit for render target
 
-    //pragrams
-    ComputeProgram=glCreateProgram();
-    shaders.cpt=load_shader("shaders/cpt.comp", GL_COMPUTE_SHADER,ComputeProgram);
-
-    RenderTargetProgram=glCreateProgram();
-    shaders.quadVert=load_shader("shaders/quad.vert", GL_VERTEX_SHADER, RenderTargetProgram);
-    shaders.quadFrag=load_shader("shaders/quad.frag", GL_FRAGMENT_SHADER, RenderTargetProgram);
-
-    //particlePosition init
+    //---particlePosition init
     glCreateBuffers(1,&buffers.particlePosition);
     glBindBuffer(GL_ARRAY_BUFFER,buffers.particlePosition);
-    particle_properties.position=new vec4[1024];
+    glBufferData(GL_ARRAY_BUFFER,1024*sizeof(vec4),NULL,GL_DYNAMIC_COPY);//1024 particles. 4 component per position vector
+    particle_properties.position=(vec4 *)
+        glMapBufferRange(GL_ARRAY_BUFFER,0,1024 * sizeof(vec4),GL_MAP_WRITE_BIT);
     vec4 starting_pos;
-    starting_pos.x=-256;
-    starting_pos.y=256;
-    for(int i = 0;i<particle_system_properties.width;i++){
-        for(int j = 0;j<particle_system_properties.length;j++){
-            vec4 pos;
-            pos.x=starting_pos.x+i*particle_system_properties.interval;
-            pos.y=starting_pos.y+j*particle_system_properties.interval;
-            particle_properties.position[i*particle_system_properties.length+j]=pos;
-        }
+    starting_pos.x=256;
+    starting_pos.y=768;
+    for (int i = 0; i < particle_system_properties.width; i++) {
+      for (int j = 0; j < particle_system_properties.length; j++) {
+        vec4 pos;
+        pos.x = starting_pos.x + j * particle_system_properties.interval;
+        pos.y = starting_pos.y - i * particle_system_properties.interval;
+        particle_properties
+            .position[i * particle_system_properties.length + j] = pos;
+      }
     }
-    glBufferData(buffers.particlePosition,1024*sizeof(vec4),particle_properties.position,NULL);//1024 particles. 4 component per position vector
+    glUnmapBuffer(GL_ARRAY_BUFFER);
+
     glCreateTextures(GL_TEXTURE_BUFFER,1,&textures.particlePosition);
+    //glBindTexture(GL_TEXTURE_BUFFER,textures.particlePosition);
     glTextureBuffer(textures.particlePosition,GL_RGBA32F,buffers.particlePosition);
     glBindImageTexture(0,textures.particlePosition,0,GL_FALSE,0,GL_READ_WRITE,GL_RGBA32F);//0 is the image unit.
     
+    //---particleVelocity init
+    glCreateBuffers(1,&buffers.particleVelocity);
+    glBindBuffer(GL_ARRAY_BUFFER,buffers.particleVelocity);
+    glBufferData(GL_ARRAY_BUFFER,1024*sizeof(vec4),NULL,GL_DYNAMIC_COPY);
+    particle_properties.velocity=
+        (vec4* )glMapBufferRange(GL_ARRAY_BUFFER,0,1024*sizeof(vec4),GL_MAP_WRITE_BIT);
+    vec4 zero_vec;
+    zero_vec.x=0;
+    zero_vec.y=0;
+    zero_vec.z=0;
+    zero_vec.w=0;
+    for(int i = 0; i < 1024; i++){
+        particle_properties.velocity[i]=zero_vec;
+    }
+    glUnmapBuffer(GL_ARRAY_BUFFER);
+    
+    glCreateTextures(GL_TEXTURE_BUFFER,1,&textures.particleVelocity);
+    glTextureBuffer(textures.particleVelocity,GL_RGBA32F,buffers.particleVelocity);
+    glBindImageTexture(2,textures.particleVelocity,0,GL_FALSE,0,GL_READ_WRITE,GL_RGBA32F);
+    
+    //TODO: encapsulate these behaviours into a function
+
+    //pragrams
+    ComputeProgram = glCreateProgram();
+    shaders.cpt =
+        load_shader("shaders/cpt.comp", GL_COMPUTE_SHADER, ComputeProgram);
+
+    RenderTargetProgram = glCreateProgram();
+    shaders.quadVert =
+        load_shader("shaders/quad.vert", GL_VERTEX_SHADER, RenderTargetProgram);
+    shaders.quadFrag = load_shader("shaders/quad.frag", GL_FRAGMENT_SHADER,
+                                   RenderTargetProgram);
+
     //link compute program
     link_program(ComputeProgram);
     link_program(RenderTargetProgram);
@@ -232,9 +267,15 @@ unsigned int load_shader(const char * filePath,GLenum shaderType,unsigned int pr
     delete [] log;
     return ShaderObj;
 }
-void update_particles(){
+void update_particles(float deltaTime){
     //dispatch the computation to GPU
+    glBindVertexArray(VAOs.computeVAO);
     glUseProgram(ComputeProgram);
+    float black[4]={0,0,0,0};
+    glClearTexImage(textures.renderTarget,0,GL_RGB,GL_FLOAT,black);
+    glUniform1f(glGetUniformLocation(ComputeProgram,"particleSize"),particle_system_properties.size);
+    glUniform1f(glGetUniformLocation(ComputeProgram,"gravity"),particle_system_properties.gravity);
+    glUniform1f(glGetUniformLocation(ComputeProgram,"deltaTime"),deltaTime);
     glDispatchCompute(64,1,1);//64 * 16 = 1024. 64 = work group 16 = local work grou size
 }
 void bind_uniformi(const char * uniformName,float val,unsigned int program){
