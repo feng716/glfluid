@@ -27,7 +27,7 @@ void main(void){
     //calculate particle properties for next frame
 
     //get current velocity and accler
-    vec4 velocity = imageLoad(particleVelocity,int(gl_GlobalInvocationID.x));
+    vec4 velocity = vec4(pos.zw,0,0);
     vec4 accler = vec4(0,0,0,0);
     vec4 force = vec4(0,0,0,0);
 
@@ -38,8 +38,10 @@ void main(void){
     //F = m * a 
     accler = force / mass;
     velocity += accler * deltaTime;
-    imageStore(particleVelocity,int(gl_GlobalInvocationID.x),velocity);
+
     pos += velocity * deltaTime * acclerScale;
-    imageStore(particlePosition,int(gl_GlobalInvocationID.x),pos);
     
+    vec4 storedData = vec4(pos.xy,velocity.xy);
+    imageStore(particlePosition,int(gl_GlobalInvocationID.x),storedData);
+
 }

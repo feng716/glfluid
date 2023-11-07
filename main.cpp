@@ -79,7 +79,7 @@ struct{
     int length=32;
     int interval=20;
     float gravity=-9.8;
-    float mass=1;
+    float mass=.5;
     float size=5;
     float accler_scale=15;// multiply a scale constant with the accler 
 } particle_system_properties;
@@ -204,6 +204,8 @@ void init(){
         vec4 pos;
         pos.x = starting_pos.x + j * particle_system_properties.interval;
         pos.y = starting_pos.y - i * particle_system_properties.interval;
+        pos.z = 0;
+        pos.w = 0;
         particle_properties
             .position[i * particle_system_properties.length + j] = pos;
       }
@@ -214,26 +216,6 @@ void init(){
     //glBindTexture(GL_TEXTURE_BUFFER,textures.particlePosition);
     glTextureBuffer(textures.particlePosition,GL_RGBA32F,buffers.particlePosition);
     glBindImageTexture(0,textures.particlePosition,0,GL_FALSE,0,GL_READ_WRITE,GL_RGBA32F);//0 is the image unit.
-    
-    //---particleVelocity init
-    glCreateBuffers(1,&buffers.particleVelocity);
-    glBindBuffer(GL_ARRAY_BUFFER,buffers.particleVelocity);
-    glBufferData(GL_ARRAY_BUFFER,1024*sizeof(vec4),NULL,GL_DYNAMIC_COPY);
-    particle_properties.velocity=
-        (vec4* )glMapBufferRange(GL_ARRAY_BUFFER,0,1024*sizeof(vec4),GL_MAP_WRITE_BIT);
-    vec4 zero_vec;
-    zero_vec.x=0;
-    zero_vec.y=0;
-    zero_vec.z=0;
-    zero_vec.w=0;
-    for(int i = 0; i < 1024; i++){
-        particle_properties.velocity[i]=zero_vec;
-    }
-    glUnmapBuffer(GL_ARRAY_BUFFER);
-    
-    glCreateTextures(GL_TEXTURE_BUFFER,1,&textures.particleVelocity);
-    glTextureBuffer(textures.particleVelocity,GL_RGBA32F,buffers.particleVelocity);
-    glBindImageTexture(2,textures.particleVelocity,0,GL_FALSE,0,GL_READ_WRITE,GL_RGBA32F);
     
     //TODO: encapsulate these behaviours into a function
 
