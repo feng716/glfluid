@@ -1,0 +1,34 @@
+#version 450 core
+layout (local_size_x = 1024/2) in;
+layout (binding = 3,r32f) uniform imageBuffer array;
+//thanks to https://poniesandlight.co.uk/reflect/bitonic_merge_sort/
+void swap(ivec2 idx){
+    vec4 a_val = imageLoad(array, idx.x);
+    vec4 b_val = imageLoad(array, idx.y);
+    if(a_val.x>b_val.x){
+        imageStore(array,idx.x,b_val);
+        imageStore(array,idx.y,a_val);
+    }
+}
+void flip(int height){
+    int t = int(gl_LocalInvocationID.x);
+    ivec2 q=ivec2((2*t)/height*height,(2*t)/height*height);
+    ivec2 swap_idx=ivec2(t%(height/2),height-t%(height/2)-1);
+    swap(q+swap_idx);
+}
+void disperse(int height){
+    int t = int(gl_LocalInvocationID.x);
+    ivec2 q = ivec2(((2*t)/height)*height,((2*t)/height)*height);
+    ivec2 swap_idx = ivec2(t%(height/2),t%(height/2)+height/2);
+    swap(q+swap_idx);
+}
+void main(){
+     for(int i = 2;i<=1024;i*=2){
+        barrier();
+        flip(i);
+        for(int j = i/2;j>1;j/=2){
+            barrier();
+            disperse(j);
+        }
+    }
+}

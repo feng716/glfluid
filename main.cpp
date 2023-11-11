@@ -4,6 +4,8 @@
 #include <GL/glext.h>
 #include <GLFW/glfw3.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #include <cstddef>
 #include <sstream>
@@ -23,8 +25,9 @@ void bind_uniformi(const char * uniformName,float val,unsigned int program);
 void render();
 void render_imgui();
 void update_particles(float deltaTime);
+void bitonic_sort();
 void init();
-unsigned int SquareVBO,SquareVAO,ComputeProgram,RenderTargetProgram;
+unsigned int SquareVBO,ComputeProgram,RenderTargetProgram;
 struct vec4{
     float x;
     float y;
@@ -47,9 +50,12 @@ struct {
     unsigned int cpt;
     unsigned int quadFrag;
     unsigned int quadVert;
+    unsigned int sort;
 } shaders;
 struct {
     unsigned int computeVAO;
+    unsigned int quad;
+    unsigned int sort;
 } VAOs;
 struct{
     unsigned int particlePosition;
@@ -58,6 +64,7 @@ struct{
     unsigned int neighborGrid;
     unsigned int quadIndices;
     unsigned int quadCoord;
+    unsigned int test_sort_array;
 } buffers;
 struct {
     unsigned int particlePosition;
@@ -81,8 +88,11 @@ struct{
     float gravity=-9.8;
     float mass=.5;
     float size=5;
-    float accler_scale=15;// multiply a scale constant with the accler 
+    float accler_scale=10;// multiply a scale constant with the accler 
 } particle_system_properties;
+struct{
+    unsigned int sort;
+} programs;
 int main(){
     glfwInit();
 
@@ -105,6 +115,7 @@ int main(){
     init();
     float currentTime=glfwGetTime();
     float lastTime=0;
+    bitonic_sort();
     while(!glfwWindowShouldClose(window)){
         float deltaTime=currentTime-lastTime;
         lastTime=currentTime;
@@ -135,7 +146,7 @@ void render(){
     glUseProgram(RenderTargetProgram);
     static const float black[]={0,0,0,0};
     glClearBufferfv(GL_COLOR,0,black);
-    glBindVertexArray(SquareVAO);
+    glBindVertexArray(VAOs.quad);
     glDrawElements(GL_TRIANGLES,6,GL_UNSIGNED_INT,0);
 }
 void render_imgui(){
@@ -155,8 +166,8 @@ void init(){
     static unsigned int indices[6]{
         0,1,3,1,2,3
     };
-    glCreateVertexArrays(1,&SquareVAO);
-    glBindVertexArray(SquareVAO);
+    glCreateVertexArrays(1,&VAOs.quad);
+    glBindVertexArray(VAOs.quad);
 
     glCreateBuffers(1,&SquareVBO);
     glNamedBufferStorage(SquareVBO,sizeof(float)*8,square,NULL);
@@ -217,9 +228,28 @@ void init(){
     glTextureBuffer(textures.particlePosition,GL_RGBA32F,buffers.particlePosition);
     glBindImageTexture(0,textures.particlePosition,0,GL_FALSE,0,GL_READ_WRITE,GL_RGBA32F);//0 is the image unit.
     
+    glBindVertexArray(0);
     //TODO: encapsulate these behaviours into a function
+    
+    //sort the array
+    glCreateVertexArrays(1,&VAOs.sort);
+    glBindVertexArray(VAOs.sort);
+    glCreateBuffers(1,&buffers.test_sort_array);
+    glBindBuffer(GL_ARRAY_BUFFER,buffers.test_sort_array);
+    glBufferData(GL_ARRAY_BUFFER,1024*sizeof(float),NULL,GL_DYNAMIC_COPY);
+    float* random_array=(float* )glMapBufferRange(GL_ARRAY_BUFFER,0,1024*sizeof(float),GL_MAP_WRITE_BIT|GL_MAP_READ_BIT);
+    std::for_each(random_array,random_array+1024,[](float& val){val = rand()%100;});
+    glUnmapBuffer(GL_ARRAY_BUFFER);
 
+    unsigned int sort_array_texture;
+    glCreateTextures(GL_TEXTURE_BUFFER,1,&sort_array_texture);
+    glTextureBuffer(sort_array_texture,GL_R32F,buffers.test_sort_array);
+    glBindImageTexture(3,sort_array_texture,0,GL_FALSE,0,GL_READ_WRITE,GL_R32F);
+    
     //pragrams
+    programs.sort = glCreateProgram();
+    shaders.sort = 
+        load_shader("shaders/sort.comp", GL_COMPUTE_SHADER, programs.sort);
     ComputeProgram = glCreateProgram();
     shaders.cpt =
         load_shader("shaders/cpt.comp", GL_COMPUTE_SHADER, ComputeProgram);
@@ -233,6 +263,7 @@ void init(){
     //link compute program
     link_program(ComputeProgram);
     link_program(RenderTargetProgram);
+    link_program(programs.sort);
     spdlog::info("Init Sucess");
 }
 unsigned int load_shader(const char * filePath,GLenum shaderType,unsigned int program){
@@ -252,6 +283,15 @@ unsigned int load_shader(const char * filePath,GLenum shaderType,unsigned int pr
     glAttachShader(program,ShaderObj);
     delete [] log;
     return ShaderObj;
+}
+void bitonic_sort(){
+    glBindVertexArray(VAOs.sort);
+    glUseProgram(programs.sort);
+    glBindBuffer(GL_ARRAY_BUFFER,buffers.test_sort_array);
+    glDispatchCompute(1,1,1);
+    
+    float* view=(float* )glMapBufferRange(GL_ARRAY_BUFFER,0,1024*sizeof(float),GL_MAP_READ_BIT);
+    glUnmapBuffer(GL_ARRAY_BUFFER);
 }
 void update_particles(float deltaTime){
     //dispatch the computation to GPU
@@ -279,4 +319,5 @@ void link_program(unsigned int program){
     char* log = new char[1000];
     glGetProgramInfoLog(program,1000,NULL,log);
     spdlog::info("Link Shader Program{} Log:{}",program,log);
+    delete [] log;
 }
