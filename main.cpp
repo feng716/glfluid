@@ -47,7 +47,8 @@ static float square_uv[4][2]{
     {0,0}
 };
 struct {
-    unsigned int cpt;
+    unsigned int particleInit;
+    unsigned int particleUpdate;
     unsigned int quadFrag;
     unsigned int quadVert;
     unsigned int sort;
@@ -60,16 +61,17 @@ struct {
 struct{
     unsigned int particlePosition;
     unsigned int particleVelocity;
-    unsigned int particlePressure;
+    unsigned int particleDensity;
     unsigned int neighborGrid;
     unsigned int quadIndices;
     unsigned int quadCoord;
-    unsigned int test_sort_array;
+    unsigned int partileIdxAndCell;
+    unsigned int numberOfParticlePerCell;
 } buffers;
 struct {
     unsigned int particlePosition;
     unsigned int particleVelocity;
-    unsigned int particlePressure;
+    unsigned int particleDensity;
     unsigned int neighborGrid;
     unsigned int renderTarget;
 } textures;
@@ -91,6 +93,7 @@ struct{
     float accler_scale=10;// multiply a scale constant with the accler 
 } particle_system_properties;
 struct{
+    unsigned int particleInit;
     unsigned int sort;
 } programs;
 int main(){
@@ -114,8 +117,10 @@ int main(){
     
     init();
     float currentTime=glfwGetTime();
-    float lastTime=0;
-    bitonic_sort();
+    float lastTime=currentTime-.01;
+    
+    glUseProgram(programs.particleInit);
+    glDispatchCompute(64,1,1);
     while(!glfwWindowShouldClose(window)){
         float deltaTime=currentTime-lastTime;
         lastTime=currentTime;
@@ -227,33 +232,58 @@ void init(){
     //glBindTexture(GL_TEXTURE_BUFFER,textures.particlePosition);
     glTextureBuffer(textures.particlePosition,GL_RGBA32F,buffers.particlePosition);
     glBindImageTexture(0,textures.particlePosition,0,GL_FALSE,0,GL_READ_WRITE,GL_RGBA32F);//0 is the image unit.
-    
+
+    //density
+    glCreateBuffers(1, &buffers.particleDensity);
+    glBindBuffer(GL_ARRAY_BUFFER, buffers.particleDensity);
+    glBufferData(GL_ARRAY_BUFFER,1024*sizeof(float),NULL,GL_DYNAMIC_COPY);
+    glCreateTextures(GL_TEXTURE_BUFFER,1,&textures.particleDensity);
+    glTextureBuffer(textures.particleDensity,GL_R32F,buffers.particleDensity);
+    glBindImageTexture(4,textures.particleDensity,0,GL_FALSE,0,GL_READ_WRITE,GL_R32F);//0 is the image unit.
+
     glBindVertexArray(0);
     //TODO: encapsulate these behaviours into a function
     
-    //sort the array
+    // map the partcile index to the linear index of the cell
+    // (particleIndex, linearIndexOfCell)
     glCreateVertexArrays(1,&VAOs.sort);
     glBindVertexArray(VAOs.sort);
-    glCreateBuffers(1,&buffers.test_sort_array);
-    glBindBuffer(GL_ARRAY_BUFFER,buffers.test_sort_array);
-    glBufferData(GL_ARRAY_BUFFER,1024*sizeof(float),NULL,GL_DYNAMIC_COPY);
-    float* random_array=(float* )glMapBufferRange(GL_ARRAY_BUFFER,0,1024*sizeof(float),GL_MAP_WRITE_BIT|GL_MAP_READ_BIT);
-    std::for_each(random_array,random_array+1024,[](float& val){val = rand()%100;});
+    glCreateBuffers(1,&buffers.partileIdxAndCell);
+    glBindBuffer(GL_ARRAY_BUFFER,buffers.partileIdxAndCell);
+    glBufferData(GL_ARRAY_BUFFER,1024*sizeof(float)*2,NULL,GL_DYNAMIC_COPY);
+
+    unsigned int ptclIdxAndCells_tex;
+    glCreateTextures(GL_TEXTURE_BUFFER,1,&ptclIdxAndCells_tex);
+    glTextureBuffer(ptclIdxAndCells_tex,GL_RG32F,buffers.partileIdxAndCell);
+    glBindImageTexture(3,ptclIdxAndCells_tex,0,GL_FALSE,0,GL_READ_WRITE,GL_RG32F);
+
+    // the number of particles stored in the cell
+    // 1 2  3 4 5 CellLinearIndex
+    // 4 2 14 2 8 number of the particles stored in the cell
+    glCreateBuffers(1,&buffers.numberOfParticlePerCell);
+    glBindBuffer(GL_ARRAY_BUFFER,buffers.numberOfParticlePerCell);
+    glBufferData(GL_ARRAY_BUFFER,(4*4)*sizeof(float),NULL,GL_DYNAMIC_COPY);
+    
+    int* nopp_array=(int*) glMapBufferRange(GL_ARRAY_BUFFER,0,(4*4)*sizeof(int),GL_MAP_WRITE_BIT);
+    std::for_each(nopp_array,nopp_array+(4*4),[](int& item){item = 0;});
     glUnmapBuffer(GL_ARRAY_BUFFER);
 
-    unsigned int sort_array_texture;
-    glCreateTextures(GL_TEXTURE_BUFFER,1,&sort_array_texture);
-    glTextureBuffer(sort_array_texture,GL_R32F,buffers.test_sort_array);
-    glBindImageTexture(3,sort_array_texture,0,GL_FALSE,0,GL_READ_WRITE,GL_R32F);
+    unsigned int tex_nopp;
+    glCreateTextures(GL_TEXTURE_BUFFER,1,&tex_nopp);
+    glTextureBuffer(tex_nopp,GL_R32I,buffers.numberOfParticlePerCell);
+    glBindImageTexture(5,tex_nopp,0,GL_FALSE,0,GL_READ_WRITE,GL_R32I);
+    
     
     //pragrams
     programs.sort = glCreateProgram();
     shaders.sort = 
         load_shader("shaders/sort.comp", GL_COMPUTE_SHADER, programs.sort);
     ComputeProgram = glCreateProgram();
-    shaders.cpt =
-        load_shader("shaders/cpt.comp", GL_COMPUTE_SHADER, ComputeProgram);
-
+    shaders.particleUpdate =
+        load_shader("shaders/particleUpdate.comp", GL_COMPUTE_SHADER, ComputeProgram);
+    shaders.particleInit = glCreateProgram();
+    shaders.particleInit = 
+        load_shader("shaders/particleUpdate.comp", GL_COMPUTE_SHADER, programs.particleInit);
     RenderTargetProgram = glCreateProgram();
     shaders.quadVert =
         load_shader("shaders/quad.vert", GL_VERTEX_SHADER, RenderTargetProgram);
@@ -264,6 +294,7 @@ void init(){
     link_program(ComputeProgram);
     link_program(RenderTargetProgram);
     link_program(programs.sort);
+    link_program(programs.particleInit);
     spdlog::info("Init Sucess");
 }
 unsigned int load_shader(const char * filePath,GLenum shaderType,unsigned int program){
@@ -287,11 +318,7 @@ unsigned int load_shader(const char * filePath,GLenum shaderType,unsigned int pr
 void bitonic_sort(){
     glBindVertexArray(VAOs.sort);
     glUseProgram(programs.sort);
-    glBindBuffer(GL_ARRAY_BUFFER,buffers.test_sort_array);
     glDispatchCompute(1,1,1);
-    
-    float* view=(float* )glMapBufferRange(GL_ARRAY_BUFFER,0,1024*sizeof(float),GL_MAP_READ_BIT);
-    glUnmapBuffer(GL_ARRAY_BUFFER);
 }
 void update_particles(float deltaTime){
     //dispatch the computation to GPU
@@ -305,6 +332,10 @@ void update_particles(float deltaTime){
     glUniform1f(glGetUniformLocation(ComputeProgram,"deltaTime"),deltaTime);
     glUniform1f(glGetUniformLocation(ComputeProgram,"acclerScale"),particle_system_properties.accler_scale);
     glDispatchCompute(64,1,1);//64 * 16 = 1024. 64 = work group 16 = local work grou size
+
+    bitonic_sort();
+    
+    
 }
 void bind_uniformi(const char * uniformName,float val,unsigned int program){
     GLuint loc=glGetUniformLocation(program,uniformName);

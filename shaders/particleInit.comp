@@ -1,0 +1,16 @@
+#version 450 core
+layout (local_size_x = 16) in;
+layout (binding=3,rg32f) uniform imageBuffer particleIndexAndCell;
+layout (binding=5,r32i) uniform iimageBuffer numberOfParticlesPerCells;
+layout (binding=0,rgba32f) uniform imageBuffer particlePosAndVelocity;
+int cell_size = 256;
+void main(){
+    vec4 pos = imageLoad(particlePosAndVelocity,int(gl_GlobalInvocationID.x));
+    ivec2 index = ivec2(
+        int(pos.x)/cell_size,
+        int(pos.y)/cell_size
+    );
+    int linearIndex = index.y * width / cell_size + index.x;
+    imageStore(particleIndexAndCell,int(gl_GlobalInvocationID.x),vec4(int(gl_GlobalInvocationID.x),linearIndex,0,0));
+    imageAtomicAdd(numberOfParticlesPerCells, linearIndex, 1);
+}

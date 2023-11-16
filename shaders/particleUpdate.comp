@@ -1,0 +1,106 @@
+#version 450 core
+layout (local_size_x=16) in;
+layout (binding=0,rgba32f) uniform imageBuffer particlePosAndVelocity;
+layout (binding=1,rgba32f) uniform image2D renderTarget;
+layout (binding=2,rgba32f) uniform imageBuffer particlePosAndVelocity2;
+layout (binding=3,rg32f) uniform imageBuffer particleIndexAndCell;
+layout (binding=4,r32f) uniform imageBuffer particleDensity;
+layout (binding=5,r32i) uniform iimageBuffer numberOfParticlesPerCells;
+uniform float particleSize;
+uniform float deltaTime;
+uniform float gravity;
+uniform float mass;
+uniform float acclerScale;
+int x=4,y=4,cell_size=256,width=1024;
+const float PI = 3.14159265359;
+float poly6(vec4 r, float h){
+    float r_ = length(r.xy);
+    if(r_<=h){
+        float K_poly6=4./(PI*pow(h,8));//2d simulation
+        return K_poly6*pow((h*h-r_*r_),3);
+    }
+    else
+        return 0;
+}
+
+void main(void){
+    //get the position
+    vec4 pos = imageLoad(particlePosAndVelocity,int(gl_GlobalInvocationID.x));
+
+    //get the index    
+    ivec2 prevIndex = ivec2(
+        int(pos.x)/cell_size,
+        int(pos.y)/cell_size
+    );
+    int prevLinearIndex = prevIndex.y * width / cell_size + prevIndex.x;
+    
+    vec4 density = imageLoad(particleDensity, int(gl_GlobalInvocationID.x));
+    
+    vec4 particleColor = mix(vec4(1,0,0,0),vec4(0,1,0,0),density.x);
+    //draw the particles
+    imageStore(renderTarget,ivec2(pos.x,pos.y),vec4(1, 1, 0, 0));
+    vec4 origin=pos;
+    pos.x-=particleSize;
+    pos.y+=particleSize;
+    for(float enm_x=floor(pos.x);enm_x<floor(pos.x+2*particleSize);enm_x++){
+        for(float enm_y=floor(pos.y);enm_y>floor(pos.y-2*particleSize);enm_y--){
+            float x_delta=enm_x-origin.x;
+            float y_delta=enm_y-origin.y;
+            if(pow(x_delta, 2)+pow(y_delta,2)<=pow(particleSize,2))
+                imageStore(renderTarget,ivec2(enm_x,enm_y),particleColor);
+        }
+    }
+    pos = origin;
+    //calculate particle properties for next frame
+
+    //get current velocity and accler
+    vec4 velocity = vec4(pos.zw,0,0);
+    vec4 accler = vec4(0,0,0,0);
+    vec4 force = vec4(0,0,0,0);
+
+    //gravity
+    vec4 gravity_vec=vec4(0,gravity,0,0);
+    force+=gravity_vec * mass;
+
+    //F = m * a 
+    accler = force / mass;
+    velocity += accler * deltaTime;
+
+    pos += velocity * deltaTime * acclerScale;
+    
+    vec4 storedData = vec4(pos.xy,velocity.xy);
+    imageStore(particlePosAndVelocity,int(gl_GlobalInvocationID.x),storedData);
+
+    // locate particle in the cell
+    // (particleIndex, cellLinearIndex)
+    // (0,0) - - - - - - - > (4,0)
+    //  |                      |
+    //  |                      |
+    //  |                      |
+    //  |                      |
+    // (0,4) - - - - - - - > (4,4)
+    ivec2 index = ivec2(
+        int(pos.x)/cell_size,
+        int(pos.y)/cell_size
+    );
+
+    //get starting point of the current cell
+    int startPoint=0;
+    for(int i = 0; i < prevLinearIndex; i++){
+        startPoint += int(imageLoad(numberOfParticlesPerCells,i)).x; 
+    }
+
+    //get the density of the particle
+    density = vec4(0,0,0,0);
+    int nbr = int( imageLoad(numberOfParticlesPerCells, prevLinearIndex).x );
+    for(int i = 0; i < nbr; i++){
+        vec4 idx = imageLoad(particleIndexAndCell,i+startPoint);
+        vec4 otrParticleAndPos = imageLoad(particlePosAndVelocity,int(idx.x));
+        density.x += poly6(otrParticleAndPos - origin, 128) * mass;
+    }
+    imageStore(particleDensity,int(gl_GlobalInvocationID.x),density);
+    int linearIndex = index.y * width / cell_size + index.x;
+    imageStore(particleIndexAndCell,int(gl_GlobalInvocationID.x),vec4(int(gl_GlobalInvocationID.x),linearIndex,0,0));
+    imageAtomicAdd(numberOfParticlesPerCells, prevLinearIndex, -1);
+    imageAtomicAdd(numberOfParticlesPerCells, linearIndex, 1);
+}
