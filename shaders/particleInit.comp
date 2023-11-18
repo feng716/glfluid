@@ -3,7 +3,7 @@ layout (local_size_x = 16) in;
 layout (binding=3,rg32f) uniform imageBuffer particleIndexAndCell;
 layout (binding=5,r32i) uniform iimageBuffer numberOfParticlesPerCells;
 layout (binding=0,rgba32f) uniform imageBuffer particlePosAndVelocity;
-int cell_size = 256;
+int cell_size = 256, width = 1024;
 void main(){
     vec4 pos = imageLoad(particlePosAndVelocity,int(gl_GlobalInvocationID.x));
     ivec2 index = ivec2(

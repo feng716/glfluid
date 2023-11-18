@@ -20,6 +20,15 @@ void framebuffer_callback(GLFWwindow* window,int,int);
 void glfw_error_callback(int, const char *);
 void gl_error_callback(GLenum source,GLenum type,GLuint id,GLenum severity,GLsizei length,const GLchar *message,const void *userParam);
 unsigned int load_shader(const char * filePath, GLenum shaderType,unsigned int program);
+template<typename T>
+T* mapDataFromServer(int dataNumber, unsigned int __array){
+    glBindBuffer(GL_ARRAY_BUFFER,__array);
+    return (T *) 
+        glMapBufferRange(GL_ARRAY_BUFFER,0,dataNumber * sizeof(T),GL_MAP_WRITE_BIT);
+}
+void unmapData(){
+    glUnmapBuffer(GL_ARRAY_BUFFER);
+}
 void link_program(unsigned int program);
 void bind_uniformi(const char * uniformName,float val,unsigned int program);
 void render();
@@ -88,9 +97,10 @@ struct{
     int length=32;
     int interval=20;
     float gravity=-9.8;
-    float mass=.5;
+    float mass=5;
     float size=5;
     float accler_scale=10;// multiply a scale constant with the accler 
+    float kernel_radius=10;
 } particle_system_properties;
 struct{
     unsigned int particleInit;
@@ -121,6 +131,7 @@ int main(){
     
     glUseProgram(programs.particleInit);
     glDispatchCompute(64,1,1);
+
     while(!glfwWindowShouldClose(window)){
         float deltaTime=currentTime-lastTime;
         lastTime=currentTime;
@@ -161,8 +172,9 @@ void render_imgui(){
     ImGui::SliderFloat("particle size", &particle_system_properties.size, 0, 10);
     ImGui::Text("Render Target: %u",textures.renderTarget);
     ImGui::SliderFloat("Gravity", &particle_system_properties.gravity, -10, 10);
-    ImGui::SliderFloat("Mass", &particle_system_properties.mass, .01, 10);
+    ImGui::SliderFloat("Mass", &particle_system_properties.mass, .01, 30);
     ImGui::SliderFloat("Acceleration Scale", &particle_system_properties.accler_scale, 3, 10);
+    ImGui::SliderFloat("Kernel Radius",&particle_system_properties.kernel_radius,10,100);
     ImGui::End();
 }
 void init(){
@@ -212,7 +224,7 @@ void init(){
     glBufferData(GL_ARRAY_BUFFER,1024*sizeof(vec4),NULL,GL_DYNAMIC_COPY);//1024 particles. 4 component per position vector
     particle_properties.position=(vec4 *)
         glMapBufferRange(GL_ARRAY_BUFFER,0,1024 * sizeof(vec4),GL_MAP_WRITE_BIT);
-    vec4 starting_pos;
+/*     vec4 starting_pos;
     starting_pos.x=256;
     starting_pos.y=768;
     for (int i = 0; i < particle_system_properties.width; i++) {
@@ -225,6 +237,14 @@ void init(){
         particle_properties
             .position[i * particle_system_properties.length + j] = pos;
       }
+    }*/
+    for(int i = 0; i < 1024; i++){
+        vec4 pos;
+        pos.x = rand()%1024;
+        pos.y = rand()%1024;
+        pos.z = 0;
+        pos.w = 0;
+        particle_properties.position[i] = pos;
     }
     glUnmapBuffer(GL_ARRAY_BUFFER);
 
@@ -281,9 +301,9 @@ void init(){
     ComputeProgram = glCreateProgram();
     shaders.particleUpdate =
         load_shader("shaders/particleUpdate.comp", GL_COMPUTE_SHADER, ComputeProgram);
-    shaders.particleInit = glCreateProgram();
+    programs.particleInit = glCreateProgram();
     shaders.particleInit = 
-        load_shader("shaders/particleUpdate.comp", GL_COMPUTE_SHADER, programs.particleInit);
+        load_shader("shaders/particleInit.comp", GL_COMPUTE_SHADER, programs.particleInit);
     RenderTargetProgram = glCreateProgram();
     shaders.quadVert =
         load_shader("shaders/quad.vert", GL_VERTEX_SHADER, RenderTargetProgram);
@@ -329,12 +349,13 @@ void update_particles(float deltaTime){
     glUniform1f(glGetUniformLocation(ComputeProgram,"particleSize"),particle_system_properties.size);
     glUniform1f(glGetUniformLocation(ComputeProgram,"gravity"),particle_system_properties.gravity);
     glUniform1f(glGetUniformLocation(ComputeProgram,"mass"),particle_system_properties.mass);
-    glUniform1f(glGetUniformLocation(ComputeProgram,"deltaTime"),deltaTime);
+    glUniform1f(glGetUniformLocation(ComputeProgram,"deltaTime"),.01);//for debug purpose
     glUniform1f(glGetUniformLocation(ComputeProgram,"acclerScale"),particle_system_properties.accler_scale);
+    glUniform1f(glGetUniformLocation(ComputeProgram,"kernelRadius"),particle_system_properties.kernel_radius);
+    
     glDispatchCompute(64,1,1);//64 * 16 = 1024. 64 = work group 16 = local work grou size
 
     bitonic_sort();
-    
     
 }
 void bind_uniformi(const char * uniformName,float val,unsigned int program){

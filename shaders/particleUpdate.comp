@@ -11,8 +11,20 @@ uniform float deltaTime;
 uniform float gravity;
 uniform float mass;
 uniform float acclerScale;
+uniform float kernelRadius;
 int x=4,y=4,cell_size=256,width=1024;
 const float PI = 3.14159265359;
+const vec2 neightbors[9] = vec2[9](
+    vec2(0,0),
+    vec2(0,-1),
+    vec2(0,1),
+    vec2(-1,0),
+    vec2(-1,1),
+    vec2(-1,-1),
+    vec2(1,0),
+    vec2(1,1),
+    vec2(1,-1)
+);
 float poly6(vec4 r, float h){
     float r_ = length(r.xy);
     if(r_<=h){
@@ -22,7 +34,9 @@ float poly6(vec4 r, float h){
     else
         return 0;
 }
-
+int getLinearIndex(vec2 index2){
+    return int(index2.y * width / cell_size + index2.x);
+}
 void main(void){
     //get the position
     vec4 pos = imageLoad(particlePosAndVelocity,int(gl_GlobalInvocationID.x));
@@ -32,11 +46,11 @@ void main(void){
         int(pos.x)/cell_size,
         int(pos.y)/cell_size
     );
-    int prevLinearIndex = prevIndex.y * width / cell_size + prevIndex.x;
+    int prevLinearIndex = getLinearIndex(prevIndex);//prevIndex.y * width / cell_size + prevIndex.x
     
     vec4 density = imageLoad(particleDensity, int(gl_GlobalInvocationID.x));
     
-    vec4 particleColor = mix(vec4(1,0,0,0),vec4(0,1,0,0),density.x);
+    vec4 particleColor = mix(vec4(1,0,0,0),vec4(0,1,0,0),density.x*50);
     //draw the particles
     imageStore(renderTarget,ivec2(pos.x,pos.y),vec4(1, 1, 0, 0));
     vec4 origin=pos;
@@ -68,6 +82,15 @@ void main(void){
 
     pos += velocity * deltaTime * acclerScale;
     
+    //restrict the position of the particle
+    if(pos.x>1024||pos.x<0){
+        pos.x=clamp(pos.x, 0, 1024);
+        velocity.x*=-.6;
+    }
+    if(pos.y>1024||pos.y<0){
+        pos.y=clamp(pos.y, 0, 1024);
+        velocity.y*=-.6;
+    }
     vec4 storedData = vec4(pos.xy,velocity.xy);
     imageStore(particlePosAndVelocity,int(gl_GlobalInvocationID.x),storedData);
 
@@ -96,7 +119,7 @@ void main(void){
     for(int i = 0; i < nbr; i++){
         vec4 idx = imageLoad(particleIndexAndCell,i+startPoint);
         vec4 otrParticleAndPos = imageLoad(particlePosAndVelocity,int(idx.x));
-        density.x += poly6(otrParticleAndPos - origin, 128) * mass;
+        density.x += poly6(otrParticleAndPos - origin, kernelRadius) * mass;
     }
     imageStore(particleDensity,int(gl_GlobalInvocationID.x),density);
     int linearIndex = index.y * width / cell_size + index.x;
